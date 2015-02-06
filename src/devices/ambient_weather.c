@@ -93,6 +93,43 @@ validate_os_v2_message (unsigned char * msg, int bits_expected, int valid_v2_bit
   return 1;
 }
 
+static uint8_t 
+validate_checksum(uint8_t *buff, int length)
+{
+  uint8_t mask = 0x7C;
+  uint8_t checksum = 0x64;
+  uint8_t data;
+  int byteCnt;	
+
+  for (byteCnt=0; byteCnt < length; byteCnt++)
+  {
+    int bitCnt;
+    data = buff[byteCnt];
+
+    for ( bitCnt= 7; bitCnt >= 0 ; bitCnt-- )
+    {
+      uint8_t bit;
+
+      // Rotate mask right
+      bit = mask & 1;
+      mask =  (mask >> 1 ) | (mask << 7);
+      if ( bit )
+      {
+	mask ^= 0x18;
+      }
+
+      // XOR mask into checksum if data bit is 1	
+      if ( data & 0x80 )
+      {
+	checksum ^= mask;
+      }
+      data <<= 1; 
+    }
+  }
+  return checksum;
+}
+
+
 static int
 ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_row[BITBUF_ROWS])
 {
@@ -110,11 +147,12 @@ ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_r
   }
   fprintf (stderr,"\n\n");
 
+
+
   /*
   00 14 50 60 49
   */
   if ( (bb[0][0] == 0x00) && (bb[0][1] == 0x14) && (bb[0][2] & 0x50) ) {
-    fprintf (stderr, "it's an ambient device\n");
 
     uint16_t deviceID = ( (bb[0][2] & 0x0f) << 4) | ((bb[0][3] & 0xf0)  >> 4);
     fprintf (stderr, "DeviceID: %d\n", deviceID);
@@ -132,6 +170,19 @@ ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_r
 
     uint8_t humidity = ( (bb[0][5] & 0x0f) << 4) | ((bb[0][6] & 0xf0) >> 4);
     fprintf (stderr, "Humidity: %d\n", humidity);
+
+    uint8_t checksum = ( (bb[0][6] & 0x0f) << 4) | ((bb[0][7] & 0xf0) >> 4);
+    fprintf (stderr, "Checksum: %d\n", checksum);
+  
+  
+    uint8_t pkt[5];
+    pkt[0] = ((bb[0][1] & 0x0f) << 4) | ((bb[0][2] & 0xf0) >> 4);
+    pkt[1] = deviceID;
+    pkt[2] = ((bb[0][3] & 0x0f) << 4) | ((bb[0][4] & 0xf0) >> 4);
+    pkt[3] = (temp_raw + 400) & 0x0ff;
+    pkt[4] = humidity;
+    checksum = validate_checksum (pkt, 5);
+    fprintf (stderr, "MyChecksum: %d\n", checksum);
   } 
 
   // Check 2nd and 3rd bytes of stream for possible Oregon Scientific v2.1 sensor data (skip first byte to get past sync/startup bit errors)
