@@ -18,5 +18,6 @@ extern r_device intertechno;
 extern r_device newkaku;
 extern r_device alectov1;
 extern r_device fineoffset_WH2;
+extern r_device ambient_weather;
 
 #endif /* INCLUDE_RTL_433_DEVICES_H_ */

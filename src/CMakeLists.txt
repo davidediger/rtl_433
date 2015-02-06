@@ -31,7 +31,8 @@ add_executable(rtl_433
 	devices/intertechno.c
 	devices/alecto.c
 	devices/newkaku.c
-	devices/fineoffset.c)
+	devices/fineoffset.c
+	devices/ambient_weather.c)
 
 target_link_libraries(rtl_433
 	${LIBRTLSDR_LIBRARIES}

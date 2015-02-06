@@ -1066,6 +1066,7 @@ int main(int argc, char **argv) {
     register_protocol(demod, &intertechno);
     register_protocol(demod, &mebus433);
     register_protocol(demod, &fineoffset_WH2);
+    register_protocol(demod, &ambient_weather);
 
     if (argc <= optind - 1) {
         usage();
