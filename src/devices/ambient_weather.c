@@ -1,54 +1,27 @@
 #include "rtl_433.h"
 
 static float
-get_os_temperature (unsigned char * message, unsigned int sensor_id)
+get_temperature (uint8_t * msg)
 {
-  // sensor ID included  to support sensors with temp in different position
-  float temp_c = 0;
-  temp_c = (((message[5]>>4)*100)+((message[4]&0x0f)*10) + ((message[4]>>4)&0x0f)) /10.0F;
-  if (message[5] & 0x0f)
-    temp_c = -temp_c;
-  return temp_c;
+  uint32_t temp_f = msg[4] & 0x7f;
+  temp_f <<= 4;
+  temp_f |= ((msg[5] & 0xf0) >> 4);
+  temp_f -= 400;
+  if (msg[4] & 0x80) {
+    temp_f = -temp_f;
+  }
+  return (temp_f / 10.0f);
 }
 
-static unsigned int
-get_os_humidity (unsigned char * message, unsigned int sensor_id)
+static uint8_t
+get_humidity (uint8_t * msg)
 {
-  // sensor ID included to support sensors with temp in different position
-  int humidity = 0;
-  humidity = ((message[6]&0x0f)*10)+(message[6]>>4);
+  uint8_t humidity = ( (msg[5] & 0x0f) << 4) | ((msg[6] & 0xf0) >> 4);
   return humidity;
 }
 
-static int
-validate_os_checksum (unsigned char * msg, int checksum_nibble_idx)
-{
-  // Oregon Scientific v2.1 and v3 checksum is a  1 byte  'sum of nibbles' checksum.
-  // with the 2 nibbles of the checksum byte  swapped.
-  int i;
-  unsigned int checksum, sum_of_nibbles=0;
-  for (i=0; i<(checksum_nibble_idx-1);i+=2) {
-    unsigned char val=msg[i>>1];
-    sum_of_nibbles += ((val>>4) + (val &0x0f));
-  }
-  if (checksum_nibble_idx & 1) {
-    sum_of_nibbles += (msg[checksum_nibble_idx>>1]>>4);
-    checksum = (msg[checksum_nibble_idx>>1] & 0x0f) | (msg[(checksum_nibble_idx+1)>>1]&0xf0);
-  } else
-    checksum = (msg[checksum_nibble_idx>>1]>>4) | ((msg[checksum_nibble_idx>>1]&0x0f)<<4);
-  sum_of_nibbles &= 0xff;
-
-  if (sum_of_nibbles == checksum)
-    return 0;
-  else {
-    fprintf(stderr, "Checksum error in Oregon Scientific message.  Expected: %02x  Calculated: %02x\n", checksum, sum_of_nibbles);
-    fprintf(stderr, "Message: "); int i; for (i=0 ;i<((checksum_nibble_idx+4)>>1) ; i++) fprintf(stderr, "%02x ", msg[i]); fprintf(stderr, "\n\n");
-    return 1;
-  }
-}
-
 static uint8_t 
-validate_checksum(uint8_t *buff, int length)
+calculate_checksum (uint8_t *buff, int length)
 {
   uint8_t mask = 0x7C;
   uint8_t checksum = 0x64;
@@ -60,7 +33,7 @@ validate_checksum(uint8_t *buff, int length)
     int bitCnt;
     data = buff[byteCnt];
 
-    for ( bitCnt= 7; bitCnt >= 0 ; bitCnt-- )
+    for (bitCnt = 7; bitCnt >= 0 ; bitCnt--)
     {
       uint8_t bit;
 
@@ -83,6 +56,41 @@ validate_checksum(uint8_t *buff, int length)
   return checksum;
 }
 
+static int
+validate_checksum (uint8_t * msg, int len)
+{
+  uint8_t expected = ((msg[6] & 0x0f) << 4) | ((msg[7] & 0xf0) >> 4);
+  
+  uint8_t pkt[5];
+  pkt[0] = ((msg[1] & 0x0f) << 4) | ((msg[2] & 0xf0) >> 4);
+  pkt[1] = ((msg[2] & 0x0f) << 4) | ((msg[3] & 0xf0) >> 4);
+  pkt[2] = ((msg[3] & 0x0f) << 4) | ((msg[4] & 0xf0) >> 4);
+  pkt[3] = ((msg[4] & 0x0f) << 4) | ((msg[5] & 0xf0) >> 4);
+  pkt[4] = ((msg[5] & 0x0f) << 4) | ((msg[6] & 0xf0) >> 4);
+  uint8_t calculated = calculate_checksum (pkt, 5);
+
+  if (expected == calculated)
+    return 0;
+  else {
+    fprintf(stderr, "Checksum error in Ambient Weather message.  Expected: %02x  Calculated: %02x\n", expected, calculated);
+    fprintf(stderr, "Message: "); int i; for (i=0; i<len; i++) fprintf(stderr, "%02x ", msg[i]); fprintf(stderr, "\n\n");
+    return -1;
+  }
+}
+
+static uint16_t
+get_device_id (uint8_t * msg)
+{
+  uint16_t deviceID = ( (msg[2] & 0x0f) << 4) | ((msg[3] & 0xf0)  >> 4);
+  return deviceID;
+}
+
+static uint16_t
+get_channel (uint8_t * msg)
+{
+  uint16_t channel = (msg[3] & 0x07) + 1;
+  return channel;
+}
 
 static int
 ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_row[BITBUF_ROWS])
@@ -95,48 +103,35 @@ ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_r
     bits1 |= bits2;
     bb[0][i] = bits1;
   }
+
+  /* DEBUG: print out the received packet */
+  /*
   fprintf(stderr, "\n! ");
   for (i = 0 ; i < BITBUF_COLS ; i++) {
     fprintf (stderr, "%02x ", bb[0][i]);
   }
   fprintf (stderr,"\n\n");
-
-
-
-  /*
-  00 14 50 60 49
   */
-  if ( (bb[0][0] == 0x00) && (bb[0][1] == 0x14) && (bb[0][2] & 0x50) ) {
 
-    uint16_t deviceID = ( (bb[0][2] & 0x0f) << 4) | ((bb[0][3] & 0xf0)  >> 4);
+  if ( (bb[0][0] == 0x00) && (bb[0][1] == 0x14) && (bb[0][2] & 0x50) ) {
+    fprintf (stderr, "\n");
+
+    if (!validate_checksum (bb[0], BITBUF_COLS)) {
+      return 0;
+    }
+
+    uint16_t deviceID = get_device_id (bb[0]);
     fprintf (stderr, "DeviceID: %d\n", deviceID);
 
-    uint16_t channel = (bb[0][3] & 0x07);
+    uint16_t channel = get_channel (bb[0]);
     fprintf (stderr, "Channel: %d\n", channel);
 
-    /* does not yet take into account the sign bit */
-    uint16_t temp_raw = bb[0][4];
-    temp_raw <<= 4;
-    temp_raw |= ((bb[0][5] & 0xf0) >> 4);
-    temp_raw -= 400;
-    float temperature = temp_raw / 10.0f;
+    float temperature = get_temperature (bb[0]);
     fprintf (stderr, "Temperature: %.1f\n", temperature);
 
-    uint8_t humidity = ( (bb[0][5] & 0x0f) << 4) | ((bb[0][6] & 0xf0) >> 4);
+    uint8_t humidity = get_humidity (bb[0]);
     fprintf (stderr, "Humidity: %d\n", humidity);
-
-    uint8_t checksum = ( (bb[0][6] & 0x0f) << 4) | ((bb[0][7] & 0xf0) >> 4);
-    fprintf (stderr, "Checksum: %d\n", checksum);
   
-  
-    uint8_t pkt[5];
-    pkt[0] = ((bb[0][1] & 0x0f) << 4) | ((bb[0][2] & 0xf0) >> 4);
-    pkt[1] = deviceID;
-    pkt[2] = ((bb[0][3] & 0x0f) << 4) | ((bb[0][4] & 0xf0) >> 4);
-    pkt[3] = (temp_raw + 400) & 0x0ff;
-    pkt[4] = humidity;
-    checksum = validate_checksum (pkt, 5);
-    fprintf (stderr, "MyChecksum: %d\n", checksum);
   } 
 
   return 0;
