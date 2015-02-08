@@ -114,24 +114,25 @@ ambient_weather_parser (uint8_t bb[BITBUF_ROWS][BITBUF_COLS], int16_t bits_per_r
   */
 
   if ( (bb[0][0] == 0x00) && (bb[0][1] == 0x14) && (bb[0][2] & 0x50) ) {
-    fprintf (stderr, "\n");
+    fprintf (stderr, "\nSensor Temperature Event:\n");
+    fprintf (stderr, "protocol      = Ambient Weather\n");
 
     if (validate_checksum (bb[0], BITBUF_COLS)) {
       return 0;
     }
-
-    uint16_t deviceID = get_device_id (bb[0]);
-    fprintf (stderr, "DeviceID: %d\n", deviceID);
-
-    uint16_t channel = get_channel (bb[0]);
-    fprintf (stderr, "Channel: %d\n", channel);
-
+    
     float temperature = get_temperature (bb[0]);
-    fprintf (stderr, "Temperature: %.1f\n", temperature);
+    fprintf (stderr, "temp          = %.1f\n", temperature);
 
     uint8_t humidity = get_humidity (bb[0]);
-    fprintf (stderr, "Humidity: %d\n", humidity);
+    fprintf (stderr, "humidity      = %d\n", humidity);
   
+    uint16_t channel = get_channel (bb[0]);
+    fprintf (stderr, "channel       = %d\n", channel);
+
+    uint16_t deviceID = get_device_id (bb[0]);
+    fprintf (stderr, "id            = %d\n", deviceID);
+
   } 
 
   return 0;
