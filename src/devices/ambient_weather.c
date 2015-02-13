@@ -150,6 +150,6 @@ r_device ambient_weather = {
     /* .modulation     = */ OOK_MANCHESTER,
     /* .short_limit    = */ 125,
     /* .long_limit     = */ 0, // not used
-    /* .reset_limit    = */ 600,
+    /* .reset_limit    = */ 50000,
     /* .json_callback  = */ &ambient_weather_callback,
 };
